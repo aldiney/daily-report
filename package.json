@@ -1,0 +1,43 @@
+{
+  "name": "daily-report",
+  "version": "0.1.0",
+  "description": "Generate and send your end-of-day dev summary (git log + pending todos) to a WhatsApp group, via Evolution API or a local Wazap gateway.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "bin": {
+    "daily-report": "./bin/daily-report.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "wazap-host/",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test tests/",
+    "start": "node bin/daily-report.mjs"
+  },
+  "keywords": [
+    "daily",
+    "report",
+    "standup",
+    "whatsapp",
+    "evolution-api",
+    "wazap",
+    "git-log",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aldiney/daily-report.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aldiney/daily-report/issues"
+  }
+}
