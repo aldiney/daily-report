@@ -28,9 +28,13 @@ export function defaultConfig() {
     projects: [],
     sources: {
       gitLog: { enabled: true },
-      github: { enabled: false },
+      github: { enabled: false, repo: "" },
       todoFile: { enabled: true, path: "TODO_pending.md" },
+      emAndamento: { enabled: false, path: "" },
       historico: { enabled: false, stuckHeader: "Travado" },
+    },
+    render: {
+      humanize: true,
     },
   };
 }
