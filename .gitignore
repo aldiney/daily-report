@@ -22,8 +22,6 @@ Thumbs.db
 # Test snapshots that should NOT be committed (received snapshots, not the baseline)
 tests/**/*.received.*
 
-# Legacy planning/historic docs kept locally for reference, never published
-/ANALISE-distribuicao.md
-/docs/decisoes.md
-/docs/sincronizacao-hml-2026-05-28.md
-/docs/adr/0002-supersedes-decisoes-v1.md
+# Session notes: planning, decisions, handoffs, sync logs. Kept locally for
+# reference, never published. Each new session adds a dated file here.
+/docs/sessions/
