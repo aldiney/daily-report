@@ -1,0 +1,278 @@
+// Readline-based config wizard. Used by `daily-report config` to populate
+// every required field of the config schema interactively. No third-party
+// prompt library is used so the package stays dependency-free.
+//
+// Implementation note: uses classic `readline` with the `line` event instead
+// of `readline/promises`, because the promise API hangs on non-TTY stdin in
+// Node 20 (https://github.com/nodejs/node/issues/45447). The line-event flow
+// works identically for TTY interactive use and scripted `printf | ...` use,
+// which the unit tests rely on.
+
+import { createInterface } from "node:readline";
+import { stdin, stdout } from "node:process";
+import { gitUserName } from "../core/git-meta.mjs";
+
+import { defaultConfig } from "./schema.mjs";
+
+export async function runWizard({ previous } = {}) {
+  const io = createPromptIO();
+  try {
+    return await runFlow(io, previous);
+  } finally {
+    io.close();
+  }
+}
+
+async function runFlow(io, previous) {
+  const cfg = previous ? deepClone(previous) : defaultConfig();
+
+  intro();
+
+  // Dev profile
+  const detectedGit = gitUserName();
+  const defaultGitName = cfg.dev?.gitUsername || detectedGit || "";
+  cfg.dev = cfg.dev || {};
+  cfg.dev.gitUsername = await ask(
+    io,
+    `Your git user.name (used to filter \`git log --author\`)`,
+    defaultGitName,
+    required("git user.name")
+  );
+  cfg.dev.displayName = await ask(
+    io,
+    `Your display name (shown at the top of the report)`,
+    cfg.dev.displayName || cfg.dev.gitUsername || "",
+    required("display name")
+  );
+  cfg.dev.tag = await ask(
+    io,
+    `Your tag in the TODO file (e.g. "@alice"; leave blank to disable)`,
+    cfg.dev.tag || guessTag(cfg.dev.displayName)
+  );
+  cfg.dev.historicoDir = await ask(
+    io,
+    `History folder (relative to project; leave blank to disable archiving)`,
+    cfg.dev.historicoDir || ""
+  );
+
+  // Sources
+  cfg.sources = cfg.sources || defaultConfig().sources;
+  cfg.sources.gitLog.enabled = true;
+  cfg.sources.todoFile.enabled = await askYesNo(
+    io,
+    `Read pending TODOs from a markdown file?`,
+    cfg.sources.todoFile.enabled
+  );
+  if (cfg.sources.todoFile.enabled) {
+    cfg.sources.todoFile.path = await ask(
+      io,
+      `Path to the TODO file (relative to project)`,
+      cfg.sources.todoFile.path || "TODO_pending.md"
+    );
+  }
+  cfg.sources.github.enabled = await askYesNo(
+    io,
+    `List open GitHub issues assigned to you (requires \`gh\` CLI)?`,
+    cfg.sources.github.enabled
+  );
+  if (cfg.sources.github.enabled) {
+    cfg.sources.github.repo = await ask(
+      io,
+      `GitHub repo (owner/name; leave blank to use the project's origin remote)`,
+      cfg.sources.github.repo || ""
+    );
+  }
+  cfg.sources.historico.enabled = Boolean(cfg.dev.historicoDir) && (await askYesNo(
+    io,
+    `Read a "Stuck" section from the latest file in the history folder?`,
+    cfg.sources.historico.enabled
+  ));
+
+  // Render
+  cfg.render = cfg.render || { humanize: true };
+  cfg.render.humanize = await askYesNo(
+    io,
+    `Humanize the commit list (group by type) when no skill is in the loop?`,
+    cfg.render.humanize
+  );
+
+  // Transport
+  const transportChoice = await askChoice(
+    io,
+    `Which transport will deliver the report?`,
+    [
+      { value: "evolution", label: "Evolution API (remote HTTP gateway)" },
+      { value: "wazap", label: "Wazap (local WhatsApp gateway) - v1.1, not available yet" },
+    ],
+    cfg.transport === "wazap" ? 1 : 0
+  );
+  cfg.transport = transportChoice;
+
+  if (cfg.transport === "wazap") {
+    stdout.write(
+      "\nWazap support arrives in v1.1. Configuration recorded; transport will refuse to send for now.\n"
+    );
+  } else {
+    cfg.evolution = cfg.evolution || defaultConfig().evolution;
+    stdout.write("\n--- Evolution API ---\n");
+    cfg.evolution.url = await ask(
+      io,
+      `Evolution base URL (must start with http:// or https://)`,
+      cfg.evolution.url || "",
+      requireUrl()
+    );
+    cfg.evolution.instance = await ask(
+      io,
+      `Instance name`,
+      cfg.evolution.instance || "",
+      required("instance name")
+    );
+    cfg.evolution.apiKey = await ask(
+      io,
+      `API key`,
+      cfg.evolution.apiKey || "",
+      required("API key")
+    );
+    cfg.evolution.groupId = await ask(
+      io,
+      `Default group JID (e.g. 120363...@g.us; leave blank if you'll pass --to each send)`,
+      cfg.evolution.groupId || ""
+    );
+  }
+
+  // Projects (single optional entry; full list editing is left for later UX)
+  const addProject = await askYesNo(
+    io,
+    `Register the current directory as a project (so you can later run \`daily-report send --project <name>\` from anywhere)?`,
+    cfg.projects.length === 0
+  );
+  if (addProject) {
+    const cwd = process.cwd();
+    const defaultName =
+      (cwd.split(/[\\/]/).filter(Boolean).pop() || "main").toLowerCase();
+    const name = await ask(io, `Project name`, defaultName, required("project name"));
+    cfg.projects = cfg.projects.filter((p) => p.name !== name);
+    cfg.projects.push({ name, path: cwd });
+  }
+
+  return cfg;
+}
+
+function intro() {
+  stdout.write(
+    [
+      "",
+      "daily-report config",
+      "===================",
+      "",
+      "Interactive setup. Press <enter> to accept the default in [brackets].",
+      "",
+    ].join("\n") + "\n"
+  );
+}
+
+function deepClone(o) {
+  return JSON.parse(JSON.stringify(o));
+}
+
+function guessTag(displayName) {
+  if (!displayName) return "";
+  const first = displayName.trim().split(/\s+/)[0].toLowerCase();
+  return first ? `@${first}` : "";
+}
+
+// ===== prompt IO (line-event based, compatible with TTY and pipes) =====
+
+function createPromptIO() {
+  const rl = createInterface({ input: stdin, output: stdout, terminal: false });
+  const queue = [];
+  const pending = [];
+  let closed = false;
+
+  rl.on("line", (line) => {
+    if (pending.length > 0) {
+      pending.shift().resolve(line);
+    } else {
+      queue.push(line);
+    }
+  });
+  rl.on("close", () => {
+    closed = true;
+    while (pending.length > 0) {
+      pending.shift().reject(new Error("input stream closed before answer"));
+    }
+  });
+
+  return {
+    async question(prompt) {
+      stdout.write(prompt);
+      if (queue.length > 0) {
+        return queue.shift();
+      }
+      if (closed) {
+        throw new Error("input stream is already closed");
+      }
+      return new Promise((resolve, reject) => {
+        pending.push({ resolve, reject });
+      });
+    },
+    close() {
+      rl.close();
+    },
+  };
+}
+
+async function ask(io, prompt, dflt, validator) {
+  while (true) {
+    const shown = dflt === "" || dflt === undefined ? "" : ` [${dflt}]`;
+    const answer = (await io.question(`${prompt}${shown}: `)).trim();
+    const value = answer === "" ? dflt ?? "" : answer;
+    if (validator) {
+      const err = validator(value);
+      if (err) {
+        stdout.write(`  -> ${err}\n`);
+        continue;
+      }
+    }
+    return value;
+  }
+}
+
+async function askYesNo(io, prompt, dflt) {
+  const dfltLabel = dflt ? "Y/n" : "y/N";
+  while (true) {
+    const answer = (await io.question(`${prompt} [${dfltLabel}]: `)).trim().toLowerCase();
+    if (answer === "") return dflt;
+    if (["y", "yes", "s", "sim", "1"].includes(answer)) return true;
+    if (["n", "no", "nao", "não", "0"].includes(answer)) return false;
+    stdout.write(`  -> answer y or n\n`);
+  }
+}
+
+async function askChoice(io, prompt, options, defaultIndex = 0) {
+  stdout.write(`\n${prompt}\n`);
+  options.forEach((o, i) => {
+    stdout.write(`  ${i + 1}) ${o.label}\n`);
+  });
+  while (true) {
+    const answer = (await io.question(`Choice [${defaultIndex + 1}]: `)).trim();
+    if (answer === "") return options[defaultIndex].value;
+    const n = Number(answer);
+    if (Number.isInteger(n) && n >= 1 && n <= options.length) {
+      return options[n - 1].value;
+    }
+    stdout.write(`  -> enter a number between 1 and ${options.length}\n`);
+  }
+}
+
+function required(label) {
+  return (value) => (value && String(value).trim() !== "" ? null : `${label} is required`);
+}
+
+function requireUrl() {
+  return (value) => {
+    if (!value || String(value).trim() === "") return "URL is required";
+    if (!/^https?:\/\//i.test(value)) return "URL must start with http:// or https://";
+    return null;
+  };
+}
