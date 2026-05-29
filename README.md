@@ -2,7 +2,7 @@
 
 > **Fecha o seu dia em 30 segundos.** CLI que monta o resumo dos seus commits + pendencias e manda direto pro grupo do time no WhatsApp.
 
-`daily-report` le o `git log` do dia, agrupa por tipo (feat/fix/refactor/docs/...), combina com pendencias do seu `TODO.md` ou GitHub Issues, e despacha um daily formatado via Evolution API (v1.0) ou Wazap local (v1.1). Funciona em Linux e Windows nativo, sem Docker, sem Python, sem servidor proprio.
+`daily-report` le o `git log` do dia, agrupa por tipo (feat/fix/refactor/docs/...), combina com pendencias do seu `TODO.md` ou GitHub Issues, e despacha um daily formatado via [Evolution API](https://doc.evolution-api.com/) ou um gateway WhatsApp local (Wazap, baseado em [whatsapp-web.js](https://github.com/pedroslopez/whatsapp-web.js)). Funciona em Linux, macOS e Windows nativo, sem Docker, sem Python, sem servidor proprio.
 
 > English version: [README.en.md](README.en.md).
 
@@ -10,19 +10,22 @@
 
 - **Um comando**: `daily-report send` e o daily ja foi pro grupo.
 - **Sem perder commit**: agrupa por tipo, conta tudo, separa o que voce abandonou no `TODO_pending.md` do que voce terminou.
-- **Sem dependencia esquisita**: so Node 20.6+ e `git` no PATH.
+- **Sem dependencia esquisita**: so Node 20.6+ e `git` no PATH (mais Chromium se voce escolher Wazap).
+- **Dois transports**: use Evolution se ja tem a infra, ou Wazap pra mandar do seu WhatsApp pessoal sem servidor remoto.
 - **Multi-projeto**: configurou uma vez, roda de qualquer pasta com `--project nome-do-projeto`.
 - **Cross-platform**: Linux, macOS e Windows nativo (sem WSL).
-- **Plugavel no Claude Code**: a skill `/daily-report` abre o draft no chat, deixa voce editar antes de enviar.
+- **Plugavel no Claude Code**: a skill `/daily-report` abre o draft no chat, humaniza com LLM e deixa voce editar antes de enviar.
 
 ## Instalacao
 
 ```bash
 npm i -g github:aldiney/daily-report
-daily-report --version
+daily-report --version   # 1.1.0
 ```
 
 Requer **Node 20.6 ou superior**. Sem Node? Instale via [nvm](https://github.com/nvm-sh/nvm) (Linux/macOS) ou [nvm-windows](https://github.com/coreybutler/nvm-windows).
+
+Se voce so quer **Evolution** como transport, e isso. Se quer **Wazap** (envio via WhatsApp pessoal), tem um segundo passo - veja [Transport 2 - Wazap](#transport-2---wazap-whatsapp-pessoal-local).
 
 ## Primeiro uso (em 2 minutos)
 
@@ -30,13 +33,13 @@ Requer **Node 20.6 ou superior**. Sem Node? Instale via [nvm](https://github.com
    ```bash
    daily-report config
    ```
-   O wizard pergunta:
+   Wizard interativo. Pergunta:
    - Seu `git user.name` (auto-detectado);
    - Como voce quer aparecer no daily (`displayName`);
    - Sua tag no `TODO.md` (ex.: `@aldiney`);
    - Pasta de historico (opcional, pra arquivar daily enviado);
-   - Transport: **Evolution API** (v1.0) ou **Wazap local** (v1.1, ainda em desenvolvimento);
-   - Credenciais do transport.
+   - **Transport**: `1) Evolution API` ou `2) Wazap`;
+   - Credenciais do transport escolhido.
 
 2. **Veja o rascunho**:
    ```bash
@@ -56,6 +59,7 @@ Requer **Node 20.6 ou superior**. Sem Node? Instale via [nvm](https://github.com
 | `daily-report config` | Wizard interativo. Re-rode pra atualizar qualquer campo. |
 | `daily-report config --show` | Imprime o config atual (so leitura). |
 | `daily-report config --path` | Imprime o path do arquivo de config. |
+| `daily-report config --reset` | Wizard partindo dos defaults, ignora o config atual. |
 | `daily-report build --json` | Devolve o relatorio como JSON estruturado (usado por scripts e pela skill). |
 | `daily-report build --md` | Devolve o relatorio em markdown. Acrescente `--classic` pra ver lista crua. |
 | `daily-report send` | Gera + envia em um passo so. |
@@ -63,6 +67,13 @@ Requer **Node 20.6 ou superior**. Sem Node? Instale via [nvm](https://github.com
 | `daily-report send --from-stdin` | Le stdin verbatim e envia (a skill `/daily-report` usa esse modo). |
 | `daily-report send --project X` | Roda contra um projeto cadastrado por nome (de qualquer pasta). |
 | `daily-report send --date YYYY-MM-DD` | Roda contra outra data (default: hoje). |
+| `daily-report send --to <recipient>` | Sobrescreve o destinatario do config so nesse envio (numero `5511...` ou JID `...@g.us`). |
+| `daily-report install-wazap` | Baixa e instala o gateway Wazap local (~170MB Chromium). |
+| `daily-report wazap start [--detach]` | Sobe o daemon Wazap. Foreground por default (QR scan no terminal). |
+| `daily-report wazap stop [--force]` | Para o daemon. SIGTERM + 10s de grace, depois SIGKILL. |
+| `daily-report wazap status` | PID alive + estado da conexao WhatsApp. |
+| `daily-report wazap groups` | Lista os grupos numerados; voce escolhe um e ele vai pro `config.wazap.groupId`. |
+| `daily-report wazap log` | Mostra o path do log do daemon. |
 
 Veja `daily-report <comando> --help` pra todas as flags.
 
@@ -81,47 +92,124 @@ Veja [`docs/adr/0001-config-paths.md`](docs/adr/0001-config-paths.md) pra justif
 Tem [Claude Code](https://www.claude.com/product/claude-code) instalado? `daily-report` inclui uma skill `/daily-report` que:
 
 1. roda `daily-report build --json`,
-2. monta o draft humanizado no chat,
-3. te deixa editar (`e`) ou cancelar (`n`),
+2. humaniza os commits com LLM (linhas curtas, agregando similares),
+3. te mostra preview e oferece **s** (envia), **e** (edita), **n** (cancela),
 4. envia via `daily-report send --from-stdin` quando voce confirma com `s`.
 
 A skill mora em `.claude/skills/daily-report/SKILL.md`. Pra usar: clone este repo e o Claude Code descobre sozinho. Pra usar em **outro** projeto, copie a pasta `.claude/skills/daily-report/` pra la (a skill assume `daily-report` no PATH).
 
 ## Transports
 
-### Evolution API (v1.0, default)
+`daily-report` v1.1 tem dois transports. Voce escolhe um no wizard e pode trocar a qualquer momento.
 
-Pacote ja envia via [Evolution API](https://doc.evolution-api.com/). Voce precisa de:
+### Transport 1 - Evolution API (servidor remoto)
 
-- Uma instancia Evolution rodando (sua ou de terceiro);
-- URL base, nome da instancia, API key;
-- JID do grupo destino (ex.: `120363xxxxx@g.us`).
+Pra quem ja tem (ou tem acesso a) uma instancia da [Evolution API](https://doc.evolution-api.com/). E o caminho mais simples - so HTTP, sem dependencia local de Chromium.
 
-Tudo gravado no wizard.
+**O que voce precisa:**
+- Uma instancia Evolution rodando;
+- URL base (`https://...`), nome da instancia, API key;
+- JID do grupo destino (ex.: `120363xxxxx@g.us`) ou um numero pessoal (`5561...`).
 
-### Wazap (v1.1, em desenvolvimento)
+**Configurar:**
+```bash
+daily-report config
+# escolha "1) Evolution API" no transport
+# preencha URL/instance/apiKey/groupId
+```
 
-Pra quem **nao tem** Evolution e quer enviar via WhatsApp pessoal:
+**Trocar pra Evolution** (se ja esta em Wazap):
+```bash
+daily-report config        # rode de novo, escolha 1
+```
 
-- `daily-report install-wazap` vai baixar o gateway local (whatsapp-web.js + Chromium via Puppeteer) em `<configDir>/wazap/`.
-- `daily-report wazap start` sobe um daemon HTTP local; primeiro start pede QR scan.
-- `daily-report wazap groups` lista seus grupos numerados e voce escolhe pelo numero.
+### Transport 2 - Wazap (WhatsApp pessoal local)
 
-Wazap ainda nao esta liberado nesta versao - o wizard ja oferece a opcao mas avisa que cai em "not available yet".
+Pra quem **nao tem** Evolution e quer enviar usando o **proprio WhatsApp**. Roda um gateway local (Express + whatsapp-web.js + Puppeteer/Chromium) escutando em `127.0.0.1`.
+
+**Setup em 4 passos:**
+
+1. **Instale o gateway local** (baixa Chromium ~170MB):
+   ```bash
+   daily-report install-wazap
+   ```
+   No Linux, o comando faz pre-flight de bibliotecas do Chromium (`libnss3`, `libatk1.0-0`, etc). Se faltar alguma, ele mostra o `apt`/`dnf` exato pra rodar.
+
+2. **Suba o daemon** (foreground, vai mostrar QR code):
+   ```bash
+   daily-report wazap start
+   ```
+   Um QR code aparece no terminal. Escaneie com seu WhatsApp em `Configuracoes -> Aparelhos conectados -> Conectar um aparelho`. Quando logar, voce ve `Client ready`. Ctrl+C pra parar (sessao fica salva).
+
+   Pra rodar em **background** depois do primeiro QR scan:
+   ```bash
+   daily-report wazap stop      # se ainda estava em foreground
+   daily-report wazap start --detach
+   daily-report wazap status    # confirma que esta connected
+   ```
+
+3. **Escolha o grupo padrao**:
+   ```bash
+   daily-report wazap groups
+   ```
+   Lista numerada de todos os seus grupos. Voce digita o numero, ele grava o JID no `config.wazap.groupId`. Pra mandar pra outro grupo so naquele envio, use `--to`.
+
+4. **Troque o transport ativo pra Wazap**:
+   ```bash
+   daily-report config        # rode de novo, escolha 2
+   ```
+
+**A sessao persiste**. `daily-report wazap stop` + `start` nao pede novo QR. O `.wwebjs_auth/` mora em `<configDir>/wazap/` (fora de `node_modules`), entao **`npm i -g daily-report` upgrade nao apaga a sessao**.
+
+**Onde os arquivos do gateway moram:**
+
+```
+<configDir>/wazap/
+├── server.js              # gateway HTTP
+├── node_modules/          # inclui puppeteer + Chromium
+├── wazap.json             # {port, apiKey} gerados na instalacao
+├── wazap.pid              # PID do daemon detached (se houver)
+├── wazap.log              # stdout/stderr do daemon detached
+└── .wwebjs_auth/          # sessao WhatsApp; sobrevive upgrades
+```
+
+### Trocar de transport
+
+```bash
+daily-report config        # rode o wizard de novo, escolha 1 ou 2
+```
+
+Os dois transports ficam no mesmo `config.json` - so o campo `transport` muda. Voce pode alternar quantas vezes quiser sem perder credenciais.
 
 ## Troubleshooting
 
+### Geral
+
 - **`daily-report: command not found`** -> reinstale com `npm i -g github:aldiney/daily-report` e confirme com `which daily-report` (`where daily-report` no Windows).
 - **`No config found`** -> rode `daily-report config`. Use `daily-report config --path` pra ver onde ele esta procurando.
-- **`evolution.url must start with http:// or https://`** -> `daily-report config` e edite a URL.
 - **`No recipient`** -> nao tem `groupId` no config nem `--to` na linha de comando. Rode o wizard de novo ou passe `--to 120363...@g.us`.
-- **HTTP 401/404 do Evolution** -> chave de API ou nome de instancia errados; refaca o wizard.
 - **Commits do dia nao aparecem** -> confira `config.dev.gitUsername` (precisa bater com `git config user.name`); use `daily-report send --author "Outro Nome"` se quiser sobrescrever pontualmente.
+
+### Evolution
+
+- **`evolution.url must start with http:// or https://`** -> `daily-report config` e edite a URL.
+- **HTTP 401/404** -> chave de API ou nome de instancia errados; refaca o wizard.
+
+### Wazap
+
+- **`Linux dependencies for Chromium are missing`** durante `install-wazap` -> rode o `apt`/`dnf` que ele sugere e tente de novo.
+- **`Wazap is not installed`** ao rodar `wazap start` -> rode `daily-report install-wazap` primeiro.
+- **`No LID for user`** ao mandar pra contato individual -> ja eh tratado a partir de v1.1.0; se ainda aparecer, atualize com `daily-report install-wazap --force`.
+- **`WhatsApp not connected`** (HTTP 503) -> `daily-report wazap status` mostra o estado. Se aparecer `qr_pending`, escaneie de novo com `daily-report wazap start` em foreground.
+- **Manda mensagem pra si mesmo nao funciona** -> e limitacao do WhatsApp Web, nao do pacote. Use o numero de outra pessoa pra testar.
+- **Quero ver o log do daemon detached** -> `daily-report wazap log` mostra o path; faca `tail -f`.
 
 ## Status do projeto
 
-- **v1.0** (atual): Evolution-only, CLI estavel, skill `/daily-report` funcional.
-- **v1.1** (em breve): Wazap local opcional via `install-wazap`, picker de grupo por numero.
+- **v1.1.0** (atual): dois transports (Evolution + Wazap local), skill `/daily-report` funcional, snapshot tests.
+- **v1.0.0**: Evolution-only.
+
+Versionamento segue [Semantic Versioning](https://semver.org/). Veja [CHANGELOG.md](CHANGELOG.md).
 
 ## Origem
 
