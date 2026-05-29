@@ -113,16 +113,22 @@ function requireAuth(req, res, next) {
 
 // --- Helpers ---
 
-function formatChatId(to) {
+async function resolveChatId(to) {
   if (typeof to !== 'string') return to;
-  if (to.includes('@')) return to;
+  if (to.includes('@')) return to; // already a JID
   const clean = to.replace(/\D/g, '');
-  // Brazilian number: 55 + DDD (2) + 8 or 9 digits
-  if (clean.startsWith('55') && clean.length >= 12 && clean.length <= 13) {
+  // For individual contacts: ask WhatsApp Web to resolve the proper JID.
+  // Recent WhatsApp builds switched to LID-based addressing and a bare
+  // `<number>@c.us` no longer works on its own.
+  if (clean.length >= 10) {
+    try {
+      const numId = await client.getNumberId(clean);
+      if (numId && numId._serialized) return numId._serialized;
+    } catch (_) {
+      // fall through to the legacy bare format
+    }
     return `${clean}@c.us`;
   }
-  // Fallback: assume international number for contact
-  if (clean.length >= 10) return `${clean}@c.us`;
   return `${clean}@g.us`;
 }
 
@@ -147,7 +153,7 @@ app.post('/api/send/text', requireAuth, async (req, res) => {
     return res.status(503).json({ error: 'WhatsApp not connected', status: sessionStatus });
   }
   try {
-    const chatId = formatChatId(to);
+    const chatId = await resolveChatId(to);
     await client.sendMessage(chatId, message);
     log(`Text sent to ${chatId}`);
     res.json({ success: true, to: chatId });

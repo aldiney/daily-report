@@ -6,8 +6,74 @@ All notable changes to `daily-report` are documented here. Format follows
 
 ## [Unreleased]
 
-- v1.1.0 will add the local Wazap transport (`daily-report install-wazap`,
-  `daily-report wazap start/stop/status/groups`).
+## [1.1.0] - 2026-05-29
+
+Adds the local Wazap transport as an optional second sender. Useful for
+users who do not have access to an Evolution API instance and prefer to
+send dailies via their personal WhatsApp account.
+
+### Added
+
+- `wazap-host/` (in the published package): a small Express server wrapping
+  `whatsapp-web.js` (Puppeteer + Chromium). Exposes `GET /api/status`,
+  `POST /api/send/text` (X-API-Key required), `GET /api/groups`. Adapted
+  from a container-only reference: all `/app/*` and `/usr/bin/chromium`
+  hardcodes removed; data path is `WAZAP_DATA_DIR` (defaults to cwd).
+- `src/wazap-daemon/` to start, stop, and inspect the gateway as a
+  detached process or in foreground. PID file + log file live under
+  `<configDir>/wazap/`. Stop sends SIGTERM, waits 10s, escalates to SIGKILL.
+- `src/transports/wazap.mjs`: HTTP client. Reads port/apiKey from
+  `<configDir>/wazap/wazap.json` (written by install-wazap) as source of
+  truth, falls back to user config.
+- `daily-report install-wazap`: copies `wazap-host/` to `<configDir>/wazap/`
+  and runs `npm install` there (Puppeteer downloads Chromium ~170 MB
+  inside that folder, not under daily-report's own `node_modules`).
+  Generates a 24-byte hex API key, writes `wazap.json`, and syncs the user
+  config.
+- Linux pre-flight: install-wazap checks for `libnss3`, `libatk1.0-0`,
+  `libatk-bridge2.0-0`, `libgtk-3-0`, `libasound2`, `libxshmfence1` via
+  `ldconfig -p`. Missing libs cause early exit with apt/dnf instructions
+  (avoids downloading 170 MB just to fail at runtime).
+- `daily-report wazap start [--detach]`: foreground by default (QR code
+  on terminal, Ctrl+C stops); `--detach` runs in background.
+- `daily-report wazap stop [--force]`: SIGTERM with 10s grace, then SIGKILL.
+- `daily-report wazap status`: PID alive + WhatsApp connection state.
+- `daily-report wazap groups`: lists the connected account's groups with
+  numbered indices; user picks one, and the id is saved to
+  `config.wazap.groupId`.
+- `daily-report wazap log`: prints the daemon's log file path.
+- Config wizard: choosing transport=wazap now asks for port/url/apiKey
+  /groupId instead of refusing with "not available yet".
+
+### Changed
+
+- `src/transports/index.mjs`: `case "wazap"` now returns the live transport
+  instead of throwing.
+
+### Fixed
+
+- `wazap-host/server.js`: contact IDs (`5561...`) now go through
+  `client.getNumberId(...)` before send, instead of a bare `<number>@c.us`.
+  Recent WhatsApp builds switched to LID-based addressing and a bare
+  `@c.us` triggered "No LID for user". Group JIDs are unaffected.
+
+### Layout
+
+```
+<configDir>/wazap/
+├── server.js               # copy of wazap-host/server.js
+├── package.json
+├── node_modules/           # includes puppeteer + its Chromium (~170 MB)
+├── wazap.json              # {port, apiKey} - written by install-wazap
+├── wazap.pid               # PID of detached daemon (if any)
+├── wazap.log               # detached daemon stdout/stderr
+└── .wwebjs_auth/           # WhatsApp session; survives package upgrades
+```
+
+The `.wwebjs_auth/` directory is what survives a `npm i -g daily-report`
+upgrade and is the reason the runtime lives in `<configDir>/` instead of
+under the package's own `node_modules`. See
+[`docs/adr/0001-config-paths.md`](docs/adr/0001-config-paths.md).
 
 ## [1.0.0] - 2026-05-28
 
