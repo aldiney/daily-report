@@ -62,8 +62,6 @@ lived inside `previous-internal-project`.
 
 - `scripts/daily/` (the 1:1 copy of the original skill files), preserved
   under the git tag [`pre-refactor-snapshot`](https://github.com/aldiney/daily-report/releases/tag/pre-refactor-snapshot).
-- The previous decision document (`docs/decisoes.md`, "v1 enxuta") was
-  superseded by [ADR 0002](docs/adr/0002-supersedes-decisoes-v1.md).
 
 [Unreleased]: https://github.com/aldiney/daily-report/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/aldiney/daily-report/releases/tag/v1.0.0
