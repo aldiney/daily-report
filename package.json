@@ -1,6 +1,6 @@
 {
   "name": "daily-report",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Generate and send your end-of-day dev summary (git log + pending todos) to a WhatsApp group, via Evolution API or a local Wazap gateway.",
   "type": "module",
   "license": "MIT",
@@ -20,7 +20,8 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "test": "node --test tests/",
+    "test": "node --test 'tests/**/*.test.mjs'",
+    "test:update": "UPDATE_SNAPSHOTS=1 node --test 'tests/**/*.test.mjs'",
     "start": "node bin/daily-report.mjs"
   },
   "keywords": [
