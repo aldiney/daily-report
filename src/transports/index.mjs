@@ -6,6 +6,7 @@
 // New transports plug in by adding a case here and a sibling module.
 
 import { create as createEvolution } from "./evolution.mjs";
+import { create as createWazap } from "./wazap.mjs";
 
 export function getTransport(config) {
   if (!config || typeof config !== "object") {
@@ -15,11 +16,7 @@ export function getTransport(config) {
     case "evolution":
       return createEvolution(config.evolution);
     case "wazap":
-      // v1.1 adds the Wazap transport. The schema accepts wazap as a value
-      // already so v1.0 users with old configs do not break.
-      throw new Error(
-        "Transport 'wazap' is not available in this version. Use --transport evolution or upgrade."
-      );
+      return createWazap(config.wazap);
     default:
       throw new Error(
         `Unknown transport: ${JSON.stringify(config.transport)}. Expected "evolution" or "wazap".`

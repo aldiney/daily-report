@@ -1,0 +1,18 @@
+{
+  "name": "wazap-host",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local WhatsApp gateway used by daily-report v1.1. Not published; copied by `daily-report install-wazap` into the user config directory.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20.6"
+  },
+  "dependencies": {
+    "express": "^4.21.1",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js#v1.34.7"
+  }
+}
