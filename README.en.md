@@ -18,14 +18,51 @@
 
 ## Installation
 
+Requires **Node 20.6+** and `git` on `PATH`. If you don't have Node yet, install it via [nvm](https://github.com/nvm-sh/nvm) (Linux/macOS) or [nvm-windows](https://github.com/coreybutler/nvm-windows).
+
+### Step 1 - per-user npm prefix (Linux/macOS, no sudo)
+
+On many Node installations from apt/brew, `npm -g` wants to write to `/usr` or `/usr/local` and demands `sudo`. To avoid that, configure a per-user prefix **once**:
+
 ```bash
-npm i -g github:aldiney/daily-report
-daily-report --version   # 1.1.0
+mkdir -p ~/.npm-global
+npm config set prefix ~/.npm-global
+echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
-Requires **Node 20.6 or newer**. No Node? Install via [nvm](https://github.com/nvm-sh/nvm) (Linux/macOS) or [nvm-windows](https://github.com/coreybutler/nvm-windows).
+> On **Windows**, `npm -g` already writes to `%APPDATA%\npm` by default - no sudo, no tweaking. **Skip this step.**
+>
+> If you installed Node via **nvm** (Linux/macOS/Windows), the prefix is already per-user. **Skip this step.**
+>
+> Prefer `sudo`? Fine - just prefix each command in step 2 with `sudo npm ...`.
 
-If you only want **Evolution** as the transport, you're done. If you want **Wazap** (send via your personal WhatsApp), there's a second step - see [Transport 2 - Wazap](#transport-2---wazap-personal-whatsapp-local).
+### Step 2 - install the CLI
+
+Pick one:
+
+**Option A - published version (simplest):**
+```bash
+npm i -g github:aldiney/daily-report
+```
+
+**Option B - local development (any code change shows up immediately):**
+```bash
+git clone https://github.com/aldiney/daily-report.git
+cd daily-report
+npm link
+```
+
+### Step 3 - verify
+
+```bash
+daily-report --version   # 1.1.0
+which daily-report       # path to the binary
+```
+
+If `daily-report: command not found`, open a new terminal (so `~/.bashrc` is re-read) or run `source ~/.bashrc`.
+
+If you only want **Evolution** as the transport, you're done. If you want **Wazap** (send via your personal WhatsApp), there's a fourth step - see [Transport 2 - Wazap](#transport-2---wazap-personal-whatsapp-local).
 
 ## First-time use (2 minutes)
 
@@ -185,7 +222,7 @@ Both transports live in the same `config.json` - only the `transport` field chan
 
 ### General
 
-- **`daily-report: command not found`** -> reinstall with `npm i -g github:aldiney/daily-report` and confirm with `which daily-report` (`where daily-report` on Windows).
+- **`daily-report: command not found`** -> first thing, open a new terminal (the `~/.bashrc` entry needs to be re-read). If it persists, confirm `~/.npm-global/bin` is on `PATH` (see [Installation Step 1](#step-1---per-user-npm-prefix-linuxmacos-no-sudo)) and that `npm prefix -g` points to `~/.npm-global`. As a last resort, reinstall with `npm i -g github:aldiney/daily-report`.
 - **`No config found`** -> run `daily-report config`. Use `daily-report config --path` to see where it's looking.
 - **`No recipient`** -> no `groupId` in config and no `--to` on the command line. Re-run the wizard or pass `--to 120363...@g.us`.
 - **Today's commits do not show up** -> verify `config.dev.gitUsername` (must match `git config user.name`); use `daily-report send --author "Other Name"` to override on the fly.
