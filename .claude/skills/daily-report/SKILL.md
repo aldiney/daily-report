@@ -1,60 +1,72 @@
 ---
 name: daily-report
-description: Generate and send your end-of-day dev summary to a WhatsApp group using the `daily-report` CLI. Use when the user asks for "/daily-report", "send my daily", "fecha o dia" or equivalent. Optional args - project name (e.g. "/daily-report myproject") and date (--date YYYY-MM-DD). Triggers the interactive config wizard on first run if no config exists.
-argument-hint: "Optional: <project-name>, --date YYYY-MM-DD, --reconfigure"
+description: Generate your end-of-day (or multi-day) dev summary in natural language. Works in two modes - if the `daily-report` CLI is installed it builds and sends via the configured WhatsApp transport; if only the skill is installed it builds the report from git and hands you a copy-paste-ready message to send manually. Use when the user asks for "/daily-report", "send my daily", "fecha o dia", "resumo da semana" or equivalent. Optional args - project name, single date (--date YYYY-MM-DD) or range (--since/--until).
+argument-hint: "Optional: <project-name>, --date YYYY-MM-DD, --since/--until YYYY-MM-DD, --reconfigure"
 ---
 
-# /daily-report - send your end-of-day dev summary
+# /daily-report - your end-of-day dev summary, in natural language
 
-Thin wrapper around the `daily-report` CLI. The skill orchestrates the chat-side flow (preview, confirm, edit) and delegates everything else - config wizard, git log collection, multi-source pending list, transport - to the CLI.
+Builds a dev summary from `git log` and renders it as a friendly,
+natural-language report. Because you (an AI agent) are in the loop, the report
+is always written in natural language - never a raw commit dump.
 
-## Prerequisites
+The skill runs in one of **two modes**, decided in Step 1:
 
-1. The `daily-report` CLI must be on `PATH`. Verify with `daily-report --version`. Install with `npm i -g github:aldiney/daily-report`.
-2. You are in a git repository (verify with `git rev-parse --show-toplevel`), OR you passed an explicit project name as the first argument.
-3. Node 20.6 or newer (`node --version`).
-
-If any precondition fails, say so in one sentence and stop. Do not try to "auto-fix".
+- **CLI mode** - the `daily-report` CLI is on `PATH`. The skill builds the
+  structured report via the CLI, humanizes it, previews it, and **sends** it
+  through the user's configured transport (Evolution or local Wazap).
+- **Skill-only mode** - the CLI is **not** installed. The skill gathers the
+  data straight from `git`, humanizes it, and hands the user a **copy-paste
+  ready** message to send manually. No config, no transport, nothing to install
+  beyond this skill folder.
 
 ## Arguments
 
 | Form | Behavior |
 |---|---|
 | `/daily-report` | Today's report for the project at the current working directory. |
-| `/daily-report <project-name>` | Resolve `<project-name>` against the user's configured projects list, then generate for that project. |
-| `/daily-report --date YYYY-MM-DD` | Same project, different date. |
-| `/daily-report --reconfigure` | Re-run the config wizard. Existing config is preserved until the wizard finishes. |
+| `/daily-report <project-name>` | Resolve `<project-name>` (CLI mode: against the configured projects list; skill-only mode: treat as a path or the current repo). |
+| `/daily-report --date YYYY-MM-DD` | A single specific day. |
+| `/daily-report --since YYYY-MM-DD [--until YYYY-MM-DD]` | A **date range**. If `--until` is omitted, the range ends today. |
+| `/daily-report --reconfigure` | (CLI mode only) Re-run the config wizard. |
 
-Combine flags as needed (e.g. `/daily-report myproject --date 2026-05-27`).
+Natural-language periods also work - "esta semana", "últimos 7 dias", "last
+3 days". Convert them to concrete ISO dates yourself (today is known from the
+environment) and pass `--since`/`--until`. Combine flags freely
+(e.g. `/daily-report myproject --since 2026-06-01 --until 2026-06-05`).
 
-## Flow
-
-### Step 1 - check config
-
-```bash
-daily-report --version >/dev/null 2>&1 || { echo "daily-report CLI not on PATH. Install with: npm i -g github:aldiney/daily-report"; exit 1; }
-```
-
-If no config exists (`daily-report send` will exit with a CONFIG_MISSING error), tell the user:
-
-```
-You have not configured daily-report yet. Run `daily-report config` in a terminal to set up:
-  - Transport (Evolution API or local Wazap)
-  - Your dev profile (display name, tag, history folder)
-  - Project paths
-
-Then come back and run /daily-report.
-```
-
-If the user passed `--reconfigure`, instruct them to run `daily-report config` directly - the wizard is non-interactive when driven from the skill chat, so it must be done in a real terminal.
-
-### Step 2 - build the structured report (without sending)
+## Step 1 - detect the mode
 
 ```bash
-daily-report build --json [--project <name>] [--date YYYY-MM-DD]
+daily-report --version >/dev/null 2>&1 && echo CLI_MODE || echo SKILLONLY_MODE
 ```
 
-Capture the JSON. Expected shape:
+- `CLI_MODE` -> follow **Flow A**.
+- `SKILLONLY_MODE` -> follow **Flow B**. Do **not** tell the user to install
+  anything; skill-only mode is a fully supported path.
+
+In both modes, confirm you are in a git repository (or that an explicit project
+path was given) before continuing:
+
+```bash
+git rev-parse --show-toplevel
+```
+
+If that fails and no explicit project path was provided, say so in one sentence
+and stop.
+
+---
+
+## Flow A - CLI mode (build + send)
+
+### A1 - build the structured report
+
+```bash
+daily-report build --json [--project <name>] [--date YYYY-MM-DD] [--since YYYY-MM-DD] [--until YYYY-MM-DD]
+```
+
+`build --json` is the machine contract - it prints **only** JSON to stdout (no
+natural-language notice). Capture it. Expected shape:
 
 ```json
 {
@@ -63,6 +75,7 @@ Capture the JSON. Expected shape:
   "branch":  "main" | "(detached)" | null,
   "date":    "YYYY-MM-DD",
   "dateBr":  "DD/MM/YYYY",
+  "period":  { "since", "until", "sinceBr", "untilBr", "isRange", "label" },
   "commits": [{ "hash", "subject", "type", "scope", "message" }],
   "commitsTotal": N,
   "pending": {
@@ -75,74 +88,20 @@ Capture the JSON. Expected shape:
 }
 ```
 
-### Step 3 - humanize commits (if `config.humanize` is true)
-
-Group `commits` by `type`. Write a short line per group:
+If `build` exits with a CONFIG_MISSING error, tell the user:
 
 ```
-- N <type>: <one-line summary of what was done, no hashes, no raw subjects>
+You have not configured daily-report yet. Run `daily-report config` in a
+terminal to set up transport + dev profile + projects, then re-run /daily-report.
 ```
 
-Rules:
-- Use `message` (subject minus the conventional-commit prefix) to understand intent.
-- Aggregate similar items ("3 validation fixes" instead of "fix login, fix signup, fix reset").
-- Keep each line under ~80 chars (WhatsApp line wrap).
-- Keep `<type>` lowercase (`feat`, `fix`, `refactor`, `docs`, etc.).
-- Preferred order: `feat` -> `fix` -> `refactor` -> `docs` -> `chore`/`test`/other.
+If the user passed `--reconfigure`, instruct them to run `daily-report config`
+directly (the wizard needs a real terminal; it cannot be driven from chat).
 
-If `config.humanize` is false: render the raw list (`- <subject> (<hash>)`).
-
-### Step 4 - combine the pending sources
-
-Output one section in this order: GitHub issues -> TODO file -> em-andamento.
+### A2 - humanize + assemble (see "Writing the report" below), then preview
 
 ```
-*Pending / In progress*
-- N open GitHub issues: #X (short title), #Y (short title)
-- M items in your TODO file: <brief description>
-- 1 em-andamento note: <one-line summary>
-```
-
-Rules:
-- Use issue number (#15) and short title; drop labels unless they tell you something useful (`[bug]`).
-- TODO entries: paraphrase, do not paste the raw `- [ ] X.Y` line.
-- em-andamento: one-line summary or short bullet list - never dump the whole file.
-- If a source is `null` or `[]`, **omit** that line entirely (do not show "0 issues").
-- If all sources are empty, render `_(nothing)_`.
-
-### Step 5 - render "Stuck"
-
-If `stuck` is a string: render verbatim (the user already formatted it as markdown).
-If `stuck` is `null`: render `_(nothing)_`.
-
-### Step 6 - assemble the final report
-
-```
-*Daily {dev.displayName} - {dateBr}*
-Project: {repo} - branch: {branch}
-
-*Done today*
-{humanized or raw commit list}
-
-*Pending / In progress*
-{combined sources block}
-
-*Stuck*
-{text or _(nothing)_}
-
-Total commits: {commitsTotal}
-```
-
-Rules for the "Project" line:
-- Always immediately after the header, before "Done today".
-- If `repo` is `null` (no remote), omit the line entirely.
-- If `branch` is `null`, render only `Project: {repo}` (no `- branch: ...`).
-- Exact format: `Project: owner/name - branch: main` (regular hyphen, spaces around it).
-
-### Step 7 - preview + confirm
-
-```
-Draft of /daily-report for {repo or project name} ({dateBr}):
+Draft of /daily-report for {repo or project} ({period.label}):
 
 {final report}
 
@@ -152,38 +111,28 @@ Send to the configured group?
   n - cancel
 ```
 
-Wait for the answer.
+### A3 - act on the answer
 
-### Step 8a - "s" - send
+- **s** -> send verbatim:
+  ```bash
+  printf '%s\n' "<final report>" | daily-report send --from-stdin
+  ```
+  `send --from-stdin` sends the text as-is (no notice, no re-render). Report the
+  exit code + transport response. On failure show stderr and ask whether to
+  retry. **Do not archive on failure.**
+- **e** -> "Paste the edited text below (one message):", capture, re-preview,
+  loop until `s` or `n`.
+- **n** -> `Cancelled. Nothing was sent.` and stop.
 
-```bash
-printf '%s\n' "<final report>" | daily-report send --from-stdin
-```
+### A4 - archive (only after a successful send)
 
-Report exit code + transport response. On failure, show stderr and ask whether to retry. **Do not archive on failure.**
-
-### Step 8b - "e" - edit
-
-Ask: "Paste the edited text below (one message):". Capture, re-render the preview, loop until `s` or `n`.
-
-### Step 8c - "n" - cancel
-
-Confirm: `Cancelled. Nothing was sent.` and stop.
-
-### Step 9 - archive (only after a successful send)
-
-If `config.dev.historicoDir` is set in the user's config, save the sent report to:
-
-```
-<projectPath>/<historicoDir>/<YYYY-MM-DD>-daily.md
-```
-
-(with a `-<projectName>` suffix when an explicit project arg was used).
-
-Content:
+If `config.dev.historicoDir` is set, save the sent report to
+`<projectPath>/<historicoDir>/<period>-daily.md` (use `date` for a single day,
+or `<since>_<until>` for a range; add a `-<projectName>` suffix when an explicit
+project arg was used):
 
 ```markdown
-# Daily {dev.displayName} - {dateBr} ({projectName})
+# Daily {dev.displayName} - {period.label} ({projectName})
 
 {final report verbatim}
 
@@ -192,31 +141,155 @@ Content:
 _Sent via /daily-report at {YYYY-MM-DD HH:mm}._
 ```
 
-Overwrite if the file already exists (last send wins). Report: `Daily archived at <relative path>.`
+Overwrite if it exists. Report `Daily archived at <relative path>.` If
+`historicoDir` is empty or missing, warn `No history folder configured - daily
+was sent but not archived.` and do **not** create the directory.
 
-If `historicoDir` is empty or the directory does not exist: warn `No history folder configured - daily was sent but not archived.` and do **not** create the directory automatically.
+---
+
+## Flow B - skill-only mode (build from git + manual copy)
+
+No CLI, no config, no transport. You gather the data, humanize it, and give the
+user a ready-to-paste message. **Never** try to send it - the user sends it
+manually (WhatsApp, Slack, email, wherever).
+
+### B1 - gather the facts from git
+
+Resolve the date window first (single day = today by default; or the `--date`,
+or the `--since`/`--until` range the user asked for). Then:
+
+```bash
+NAME="$(git config user.name)"
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+REMOTE="$(git remote get-url origin 2>/dev/null)"   # may be empty; parse owner/name from it
+# Commits in the window (single day: same date for both bounds):
+git log --author="$NAME" --since="<START> 00:00" --until="<END> 23:59" --pretty=format:'%h%x09%s'
+```
+
+Each commit line is `shorthash<TAB>subject`. Categorize each subject by its
+conventional-commit prefix (`feat`, `fix`, `refactor`, `docs`, `chore`, `test`,
+`perf`, `build`, `ci`, `style`, `revert`; everything else is `other`).
+
+If the user gave an explicit author or you suspect `git config user.name`
+differs from the commit author, ask or pass the right name to `--author`.
+
+### B2 - gather pending items (best-effort, optional)
+
+Skill-only mode has no config, so do a light, best-effort pass and silently skip
+anything absent:
+
+- TODO file: if `TODO_pending.md` or `TODO.md` exists in the repo root, read the
+  open `- [ ]` lines (filter to the user's tag if they mention one).
+- GitHub issues: if `gh` is on PATH, `gh issue list --assignee @me --limit 10`.
+
+Never block on these; if none are present, the pending section is `_(nothing)_`.
+
+### B3 - write the report (see "Writing the report" below), then present it
+
+Show it inside a fenced code block so it is trivial to copy, and tell the user
+to send it manually:
+
+```
+Here is your daily for {repo or folder} ({period.label}). Copy and send it
+manually to your group:
+
+\```
+{final report}
+\```
+
+Want me to tweak anything before you copy it? (or say "save" to write it to a file)
+```
+
+If the user asks to edit, apply the change and re-show the block. If they ask to
+"save", write it to `<repo>/<period>-daily.md` in the working tree (never
+commit). There is no automatic archive in skill-only mode.
+
+---
+
+## Writing the report (both modes)
+
+Always natural language. The goal is a human-readable summary a teammate can
+skim in 5 seconds - not a commit log.
+
+### Humanize the commits
+
+Group by `type`. Write one short line per group describing **what was done**,
+not the raw subjects:
+
+```
+- N <type>: <one-line natural summary, no hashes, no raw subjects>
+```
+
+Rules:
+- Use `message` (subject minus the conventional-commit prefix) to understand intent.
+- Aggregate similar items ("3 validation fixes" beats "fix login, fix signup, fix reset").
+- Keep each line under ~80 chars (WhatsApp wraps).
+- `<type>` stays lowercase. Preferred order: `feat` -> `fix` -> `refactor` -> `docs` -> `chore`/`test`/other.
+- For a **range** with many commits, summarize per type across the whole window
+  ("12 commits over 3 days: shipped X, fixed Y, refactored Z") - do not paste
+  every commit.
+
+### Combine the pending sources
+
+One section, in this order: GitHub issues -> TODO file -> em-andamento. Omit any
+empty source entirely (never "0 issues"). If all empty: `_(nothing)_`.
+Paraphrase TODO and em-andamento lines; never dump the raw file.
+
+### "Stuck"
+
+If present, render verbatim (the user already formatted it). If absent: `_(nothing)_`.
+
+### Assemble
+
+Header is `*Daily ...*` for a single day and `*Report ...*` for a range:
+
+```
+*Daily {dev.displayName} - {period.label}*          (single day)
+*Report {dev.displayName} - {period.label}*         (range)
+Project: {repo} - branch: {branch}
+
+*Done today*                                         (single day)
+*Done in this period*                                (range)
+{humanized commits}
+
+*Pending / In progress*
+{combined sources}
+
+*Stuck*
+{text or _(nothing)_}
+
+Total commits: {commitsTotal}
+```
+
+Project line rules: immediately after the header; omit entirely if `repo` is
+null; render only `Project: {repo}` when `branch` is null; exact format
+`Project: owner/name - branch: main` (regular hyphen, spaces around it).
 
 ## Edge cases
 
-- **Empty everything** (no commits, no TODOs, no issues, no em-andamento, no stuck): render the minimal report with `_(nothing committed)_` and `_(nothing)_`. Still preview + confirm.
-- **`daily-report` not on PATH**: stop immediately with the install instruction. Do not try to call `npx`.
-- **Config missing**: stop and instruct the user to run `daily-report config` in a real terminal.
-- **`--reconfigure`**: do not run the wizard from inside the chat. Tell the user to run `daily-report config` in a terminal.
-- **Build returns no commits but flags an error**: surface the error verbatim; do not silently skip.
+- **Empty everything** (no commits/TODOs/issues/em-andamento/stuck): render the
+  minimal report with `_(nothing committed)_` and `_(nothing)_`. Still preview
+  (Flow A) or present (Flow B).
+- **CLI mode, config missing**: stop and point at `daily-report config`.
+- **`--reconfigure`**: Flow A only; tell the user to run `daily-report config`
+  in a terminal. Not applicable in skill-only mode.
+- **Range with zero commits**: say so plainly ("no commits authored by X between
+  ... and ..."); do not invent activity.
+- **Build returns an error**: surface it verbatim; do not silently skip.
 
 ## Never do
 
-- Never call the transport directly. Always go through `daily-report send`.
-- Never try to "improve" the draft automatically. Editing is the user's job.
-- Never send to a destination other than the one in the user's config.
-- Never archive on a failed send.
-- Never commit anything automatically. Archive only writes the file to the working tree.
-- Never assume the user knows what JID, API key, or QR pairing means - on failure, point them at the CLI help (`daily-report help send`) or the README.
+- Never send anything in skill-only mode - the user sends manually.
+- Never call a transport directly in CLI mode - always go through `daily-report send`.
+- Never "improve" the draft on your own beyond humanizing - editing is the user's job.
+- Never send to a destination other than the one in the user's config (CLI mode).
+- Never archive on a failed send; never commit anything automatically.
+- Never produce a raw commit dump - the whole point of the skill is natural language.
 
 ## References
 
-- CLI binary: `daily-report` (on PATH, installed via `npm i -g github:aldiney/daily-report`).
-- Config wizard: `daily-report config`.
-- Build command: `daily-report build --json`.
-- Send command: `daily-report send` and `daily-report send --from-stdin`.
-- Top-level README: `README.md` (PT) and `README.en.md` (EN).
+- CLI binary (CLI mode): `daily-report` on PATH (`npm i -g github:aldiney/daily-report`).
+- Config wizard: `daily-report config`. Build: `daily-report build --json`.
+- Send: `daily-report send --from-stdin`.
+- Top-level README: `README.md` (PT) and `README.en.md` (EN), incl. "Install the
+  skill only (no CLI)".

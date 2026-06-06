@@ -1,6 +1,6 @@
 {
   "name": "daily-report",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Generate and send your end-of-day dev summary (git log + pending todos) to a WhatsApp group, via Evolution API or a local Wazap gateway.",
   "type": "module",
   "license": "MIT",

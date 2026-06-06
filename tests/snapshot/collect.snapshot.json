@@ -8,6 +8,14 @@
   "branch": "main",
   "date": "2026-05-28",
   "dateBr": "28/05/2026",
+  "period": {
+    "since": "2026-05-28",
+    "until": "2026-05-28",
+    "sinceBr": "28/05/2026",
+    "untilBr": "28/05/2026",
+    "isRange": false,
+    "label": "28/05/2026"
+  },
   "commits": [
     {
       "hash": "<hash>",

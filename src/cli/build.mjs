@@ -15,7 +15,9 @@ import { loadConfig, ConfigError } from "../config/load.mjs";
 import { collect } from "../core/collect.mjs";
 import { renderClassic } from "../render/markdown-classic.mjs";
 import { renderHumanized } from "../render/humanize.mjs";
+import { writeNaturalLanguageNotice } from "../render/notice.mjs";
 import { resolveProjectPath } from "../resolver/project.mjs";
+import { isIsoDate } from "../resolver/dev.mjs";
 
 export const describe = "Generate the daily report as JSON or markdown.";
 
@@ -24,6 +26,12 @@ export async function run(args) {
   if (opts.help) {
     printHelp();
     return 0;
+  }
+
+  const dateError = validateDates(opts);
+  if (dateError) {
+    process.stderr.write(`${dateError}\n`);
+    return 65; // EX_DATAERR
   }
 
   let config;
@@ -50,6 +58,8 @@ export async function run(args) {
     cwd,
     authorOverride: opts.author,
     date: opts.date,
+    since: opts.since,
+    until: opts.until,
   });
 
   const format = opts.json ? "json" : "md";
@@ -58,16 +68,36 @@ export async function run(args) {
     return 0;
   }
 
+  // Markdown is the human-readable render: tell the user that the truly
+  // natural-language report only exists when an AI agent is in the loop.
+  writeNaturalLanguageNotice();
+
   const useClassic = opts.classic || !data.config.humanize;
   const rendered = useClassic ? renderClassic(data) : renderHumanized(data);
   process.stdout.write(rendered);
   return 0;
 }
 
+// Returns an error string if any provided date flag is malformed, else null.
+function validateDates(opts) {
+  for (const [flag, value] of [
+    ["--date", opts.date],
+    ["--since", opts.since],
+    ["--until", opts.until],
+  ]) {
+    if (value != null && !isIsoDate(value)) {
+      return `${flag} must be in YYYY-MM-DD format (got ${JSON.stringify(value)})`;
+    }
+  }
+  return null;
+}
+
 function parseArgs(argv) {
   const out = {
     project: null,
     date: null,
+    since: null,
+    until: null,
     author: null,
     json: false,
     classic: false,
@@ -77,6 +107,8 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--project") out.project = argv[++i];
     else if (a === "--date") out.date = argv[++i];
+    else if (a === "--since") out.since = argv[++i];
+    else if (a === "--until") out.until = argv[++i];
     else if (a === "--author") out.author = argv[++i];
     else if (a === "--json") out.json = true;
     else if (a === "--md") out.json = false;
@@ -97,11 +129,16 @@ function printHelp() {
       "Options:",
       "  --project <name>        Use a configured project (else current working dir)",
       "  --date <YYYY-MM-DD>     Use a specific date (default: today)",
+      "  --since <YYYY-MM-DD>    Start of a date range (default end: today)",
+      "  --until <YYYY-MM-DD>    End of a date range (use with --since)",
       "  --author <git-name>     Override config.dev.gitUsername for git log filter",
       "  --json                  Output structured JSON (default for skills)",
       "  --md                    Output markdown (humanized or classic per config)",
       "  --classic               Force classic raw-list rendering (works with --md)",
       "  -h, --help              Show this help",
+      "",
+      "Natural language: the terminal render is a deterministic summary. For a",
+      "friendly, natural-language daily, run the /daily-report skill in Claude.",
       "",
     ].join("\n")
   );

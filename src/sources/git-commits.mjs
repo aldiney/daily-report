@@ -17,9 +17,9 @@ export function categorizeCommit(subject) {
 }
 
 // Returns an array of `{ hash, subject, type, scope, message }` for commits
-// authored by `author` on `isoDate` in the repo at `cwd`. Empty array on no
-// matches or git errors.
-export function listCommitsForDay({ author, isoDate, cwd = process.cwd() }) {
+// authored by `author` between `since` and `until` (inclusive, by calendar day)
+// in the repo at `cwd`. Empty array on no matches or git errors.
+export function listCommitsForRange({ author, since, until, cwd = process.cwd() }) {
   let out;
   try {
     out = execFileSync(
@@ -27,8 +27,8 @@ export function listCommitsForDay({ author, isoDate, cwd = process.cwd() }) {
       [
         "log",
         `--author=${author}`,
-        `--since=${isoDate} 00:00`,
-        `--until=${isoDate} 23:59`,
+        `--since=${since} 00:00`,
+        `--until=${until} 23:59`,
         "--pretty=format:%H%x09%s",
       ],
       { encoding: "utf8", cwd, stdio: ["ignore", "pipe", "pipe"] }
@@ -54,4 +54,9 @@ export function listCommitsForDay({ author, isoDate, cwd = process.cwd() }) {
       };
     })
     .filter(Boolean);
+}
+
+// Backwards-compatible single-day helper (delegates to the range version).
+export function listCommitsForDay({ author, isoDate, cwd = process.cwd() }) {
+  return listCommitsForRange({ author, since: isoDate, until: isoDate, cwd });
 }

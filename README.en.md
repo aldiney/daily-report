@@ -13,8 +13,10 @@
 - **No exotic dependencies**: Node 20.6+ and `git` on `PATH` (plus Chromium if you choose Wazap).
 - **Two transports**: use Evolution if you already have the infra, or Wazap to send from your personal WhatsApp without a remote server.
 - **Multi-project**: configure once, run from any folder with `--project name-of-project`.
+- **One day or a range**: a single day (`--date`) or a whole period (`--since`/`--until`) - handy for wrapping up the week.
 - **Cross-platform**: Linux, macOS, and Windows native (no WSL required).
 - **Pluggable into Claude Code**: the `/daily-report` skill opens the draft in chat, humanizes commits with an LLM, and lets you edit before sending.
+- **Skill-only, no CLI**: you can install **just the skill** - it builds the report in natural language and hands it to you ready to copy and send by hand. See [Install the skill only](#install-the-skill-only-no-cli).
 
 ## Installation
 
@@ -56,7 +58,7 @@ npm link
 ### Step 3 - verify
 
 ```bash
-daily-report --version   # 1.1.0
+daily-report --version   # 1.2.0
 which daily-report       # path to the binary
 ```
 
@@ -103,7 +105,8 @@ If you only want **Evolution** as the transport, you're done. If you want **Waza
 | `daily-report send --dry-run` | Print exactly what would be sent, without hitting the API. |
 | `daily-report send --from-stdin` | Read stdin verbatim and send (the `/daily-report` skill uses this mode). |
 | `daily-report send --project X` | Run against a registered project by name (from any folder). |
-| `daily-report send --date YYYY-MM-DD` | Run against another date (default: today). |
+| `daily-report send --date YYYY-MM-DD` | Run against a single specific day (default: today). |
+| `daily-report send --since YYYY-MM-DD [--until YYYY-MM-DD]` | Run against a **date range**. Without `--until`, it ends today. Works on `build` too. |
 | `daily-report send --to <recipient>` | Override the configured destination for this send (a number `5511...` or a JID `...@g.us`). |
 | `daily-report install-wazap` | Download and install the local Wazap gateway (~170MB Chromium). |
 | `daily-report wazap start [--detach]` | Start the Wazap daemon. Foreground by default (QR scan on the terminal). |
@@ -113,6 +116,37 @@ If you only want **Evolution** as the transport, you're done. If you want **Waza
 | `daily-report wazap log` | Print the path of the daemon's log file. |
 
 Run `daily-report <command> --help` for every flag.
+
+## A single day or a date range
+
+By default the report covers **today**. For a specific day use `--date`; for a
+**whole period** use `--since` (and optionally `--until`):
+
+```bash
+daily-report build --md --date 2026-06-04            # just June 4th
+daily-report build --md --since 2026-06-01           # from June 1st to today
+daily-report send    --since 2026-06-01 --until 2026-06-05   # the whole week
+```
+
+For a range, the header becomes `*Report Name - 01/06/2026 -> 05/06/2026*` and
+commits are aggregated by type across the whole period. The flags work on both
+`build` and `send`.
+
+## Natural language vs. terminal mode
+
+`daily-report` always aims to deliver the report in **natural language**. The
+truly human, friendly writing (short sentences, similar items folded into prose)
+happens when an **AI agent** is in the loop - the `/daily-report` skill running
+in [Claude Code](https://www.claude.com/product/claude-code) (or another agent)
+rewrites the commits before sending.
+
+Running the CLI **straight in a terminal** (no agent) can't produce real prose:
+what you get is a **deterministic summary** (grouped by type). Because of that,
+`build --md` and `send` print a notice to `stderr` reminding you that the
+natural-language report is only available through Claude or another AI agent. The
+notice goes to `stderr`, so it **never pollutes** the report on `stdout` (pipes
+and `--dry-run` stay clean). The agent-facing paths - `build --json` and
+`send --from-stdin` - print no notice.
 
 ## Where the config lives
 
@@ -126,14 +160,40 @@ See [`docs/adr/0001-config-paths.md`](docs/adr/0001-config-paths.md) for the rat
 
 ## Claude Code skill
 
-If you have [Claude Code](https://www.claude.com/product/claude-code), `daily-report` ships a `/daily-report` skill that:
+If you have [Claude Code](https://www.claude.com/product/claude-code), `daily-report` ships a `/daily-report` skill that runs in **two modes**, decided automatically:
 
-1. runs `daily-report build --json`,
-2. humanizes commits with an LLM (short lines, aggregating similar entries),
-3. shows the preview and offers **s** (send), **e** (edit), **n** (cancel),
-4. sends via `daily-report send --from-stdin` once you confirm with `s`.
+- **CLI mode** (the `daily-report` CLI is on `PATH`): the skill runs `daily-report build --json`, humanizes commits with an LLM, shows a preview with **s** (send), **e** (edit), **n** (cancel), and **sends** via `daily-report send --from-stdin` once you confirm with `s`.
+- **Skill-only mode** (the CLI is **not** installed): the skill gathers the data straight from `git`, humanizes it, and hands you a **copy-paste-ready** message - you send it by hand. No CLI, no config, no transport.
 
-The skill lives at `.claude/skills/daily-report/SKILL.md`. To use it: clone this repo and Claude Code discovers it automatically. To use it in **another** project, copy the `.claude/skills/daily-report/` folder over (the skill assumes `daily-report` is on `PATH`).
+The skill accepts the same arguments as the CLI: a project name, `--date`, and the `--since`/`--until` range (or natural language like "this week's summary", "last 7 days").
+
+### Install the skill only (no CLI)
+
+If you **don't want to install the CLI** and just want Claude (or another agent) to generate the report in natural language for you to **copy and send manually**:
+
+1. Copy the skill folder into your project (or into Claude Code's global skills directory):
+   ```bash
+   # inside the project where you'll use it:
+   mkdir -p .claude/skills
+   cp -r /path/to/daily-report/.claude/skills/daily-report .claude/skills/
+   ```
+   Alternative: download just the `SKILL.md` from this repo (`.claude/skills/daily-report/SKILL.md`) into `.claude/skills/daily-report/SKILL.md`.
+
+2. Open Claude Code in the project and run:
+   ```
+   /daily-report
+   /daily-report --since 2026-06-01 --until 2026-06-05
+   ```
+
+3. The skill builds the report from `git log` and shows it in a copy-friendly block. **Copy and paste** it into your WhatsApp group (or anywhere) and send. Nothing is sent automatically in this mode.
+
+Skill-only prerequisites: be inside a git repository with `git` on `PATH`. That's it - no `npm install`, no transport to configure.
+
+> Want automatic WhatsApp sending later? Just install the CLI (steps above) - the same skill switches to **CLI mode** on its own.
+
+### Using the skill in another project (CLI mode)
+
+Clone this repo and Claude Code discovers the skill automatically. To use it in **another** project with the CLI installed, copy the `.claude/skills/daily-report/` folder over (the skill assumes `daily-report` is on `PATH`).
 
 ## Transports
 
@@ -243,7 +303,8 @@ Both transports live in the same `config.json` - only the `transport` field chan
 
 ## Project status
 
-- **v1.1.0** (current): two transports (Evolution + local Wazap), working `/daily-report` skill, snapshot tests.
+- **v1.2.0** (current): date ranges (`--since`/`--until`), `/daily-report` skill in two modes (CLI + skill-only copy/send-by-hand), natural-language notice in terminal mode.
+- **v1.1.0**: two transports (Evolution + local Wazap), working `/daily-report` skill, snapshot tests.
 - **v1.0.0**: Evolution-only.
 
 Versioning follows [Semantic Versioning](https://semver.org/). See [CHANGELOG.md](CHANGELOG.md).

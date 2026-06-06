@@ -4,25 +4,40 @@
 //   - src/render/*.mjs        -> markdown / humanized markdown
 //   - tests/snapshot/*        -> regression baseline
 
-import { resolveDev, todayIso, formatDateBr } from "../resolver/dev.mjs";
+import { resolveDev, formatDateBr, resolveRange } from "../resolver/dev.mjs";
 import { getRepoFull, getBranch } from "./git-meta.mjs";
-import { listCommitsForDay } from "../sources/git-commits.mjs";
+import { listCommitsForRange } from "../sources/git-commits.mjs";
 import { listGithubIssues } from "../sources/github-issues.mjs";
 import { listPendingTodos } from "../sources/todo-pending.mjs";
 import { readEmAndamento } from "../sources/em-andamento.mjs";
 import { readStuckFromHistorico } from "../sources/travado.mjs";
 
-export function collect({ config, cwd = process.cwd(), authorOverride, date } = {}) {
+export function collect({
+  config,
+  cwd = process.cwd(),
+  authorOverride,
+  date,
+  since,
+  until,
+} = {}) {
   if (!config) {
     throw new Error("collect() requires a config object");
   }
 
-  const isoDate = date || todayIso();
+  const range = resolveRange({ date, since, until });
+  // The end of the window is the reference date for single-day-oriented sources
+  // (stuck/historico lookup) and for the backwards-compatible `date` field.
+  const isoDate = range.end;
   const dev = resolveDev({ config, authorOverride, cwd });
   const sources = config.sources || {};
 
   const commits = sources.gitLog?.enabled
-    ? listCommitsForDay({ author: dev.gitUsername, isoDate, cwd })
+    ? listCommitsForRange({
+        author: dev.gitUsername,
+        since: range.start,
+        until: range.end,
+        cwd,
+      })
     : [];
 
   let githubIssues = null;
@@ -63,12 +78,23 @@ export function collect({ config, cwd = process.cwd(), authorOverride, date } = 
     });
   }
 
+  const sinceBr = formatDateBr(range.start);
+  const untilBr = formatDateBr(range.end);
+
   return {
     dev,
     repo: getRepoFull(cwd),
     branch: getBranch(cwd),
     date: isoDate,
-    dateBr: formatDateBr(isoDate),
+    dateBr: untilBr,
+    period: {
+      since: range.start,
+      until: range.end,
+      sinceBr,
+      untilBr,
+      isRange: range.isRange,
+      label: range.isRange ? `${sinceBr} → ${untilBr}` : untilBr,
+    },
     commits,
     commitsTotal: commits.length,
     pending: {

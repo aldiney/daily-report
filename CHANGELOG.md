@@ -6,6 +6,41 @@ All notable changes to `daily-report` are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-05
+
+Adds multi-day reports and a no-CLI path for the skill, and makes the
+natural-language expectation explicit when the CLI runs in a plain terminal.
+
+### Added
+
+- Date ranges: `daily-report build` and `daily-report send` accept
+  `--since YYYY-MM-DD` and `--until YYYY-MM-DD`. `--since` alone runs from that
+  date to today; `--since`+`--until` covers the whole window. `--date` (single
+  day) is unchanged. Malformed dates exit with code 65 (EX_DATAERR).
+- `collect()` output gains a `period` object
+  (`{ since, until, sinceBr, untilBr, isRange, label }`). For a range the report
+  header switches from `*Daily ...*` to `*Report ... - <since> -> <until>*` and
+  commits are grouped by type across the period.
+- `src/sources/git-commits.mjs`: `listCommitsForRange()` (the single-day
+  `listCommitsForDay()` now delegates to it).
+- `src/resolver/dev.mjs`: `resolveRange()` and `isIsoDate()` helpers.
+- Skill **skill-only mode**: `/daily-report` now works when the `daily-report`
+  CLI is **not** installed. It builds the report straight from `git`, humanizes
+  it, and hands the user a copy-paste-ready message to send manually (no config,
+  no transport). When the CLI is present, the existing build+send flow is used.
+  The skill also accepts `--since`/`--until` and natural-language periods.
+- READMEs (PT+EN): "Install the skill only (no CLI)", "A single day or a date
+  range", and "Natural language vs. terminal mode" sections.
+
+### Changed
+
+- Natural-language notice: when the CLI renders a report for a human in a
+  terminal (`build --md`, `send` without `--from-stdin`), it prints a notice to
+  **stderr** stating that friendly, natural-language reports are only available
+  via Claude Code (or another AI agent). The agent-facing paths
+  (`build --json`, `send --from-stdin`) print nothing, and the notice never
+  touches stdout (pipes / `--dry-run` stay clean).
+
 ## [1.1.0] - 2026-05-29
 
 Adds the local Wazap transport as an optional second sender. Useful for
@@ -129,5 +164,7 @@ lived inside `previous-internal-project`.
 - `scripts/daily/` (the 1:1 copy of the original skill files), preserved
   under the git tag [`pre-refactor-snapshot`](https://github.com/aldiney/daily-report/releases/tag/pre-refactor-snapshot).
 
-[Unreleased]: https://github.com/aldiney/daily-report/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/aldiney/daily-report/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/aldiney/daily-report/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/aldiney/daily-report/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/aldiney/daily-report/releases/tag/v1.0.0

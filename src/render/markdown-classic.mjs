@@ -5,6 +5,7 @@
 
 export function renderClassic(data) {
   const { dev, dateBr, commits, pending, stuck, commitsTotal, repo, branch } = data;
+  const period = data.period || { isRange: false, label: dateBr };
 
   const projectLine = repo
     ? `Project: ${repo}${branch ? ` - branch: ${branch}` : ""}`
@@ -31,8 +32,12 @@ export function renderClassic(data) {
 
   const stuckText = stuck || "_(nothing)_";
 
+  const title = period.isRange
+    ? `*Report ${dev.displayName} - ${period.label}*`
+    : `*Daily ${dev.displayName} - ${period.label}*`;
+
   const lines = [
-    `*Daily ${dev.displayName} - ${dateBr}*`,
+    title,
     ...(projectLine ? [projectLine] : []),
     "",
     "*Done today*",

@@ -57,3 +57,53 @@ test("collect() against fixture mini-repo matches baseline", () => {
 test("collect() throws when config is missing", () => {
   assert.throws(() => collect({ cwd: "/tmp", date: "2026-05-28" }), /config/);
 });
+
+test("collect() with --since/--until produces a range period", () => {
+  const fix = buildFixture({ date: "2026-05-28" });
+  try {
+    const cfg = defaultConfig();
+    cfg.dev.gitUsername = fix.author;
+    cfg.evolution.url = "http://example.com";
+    cfg.evolution.instance = "inst";
+    cfg.evolution.apiKey = "k";
+
+    const data = collect({
+      config: cfg,
+      cwd: fix.cwd,
+      since: "2026-05-27",
+      until: "2026-05-29",
+    });
+
+    assert.equal(data.period.isRange, true);
+    assert.equal(data.period.since, "2026-05-27");
+    assert.equal(data.period.until, "2026-05-29");
+    assert.equal(data.period.label, "27/05/2026 → 29/05/2026");
+    // Reference date (single-day sources, dateBr) tracks the end of the window.
+    assert.equal(data.date, "2026-05-29");
+    assert.equal(data.dateBr, "29/05/2026");
+    // All three fixture commits land on 2026-05-28, inside the range.
+    assert.equal(data.commitsTotal, 3);
+  } finally {
+    rmSync(fix.cwd, { recursive: true, force: true });
+  }
+});
+
+test("collect() single day fills period with isRange=false", () => {
+  const fix = buildFixture({ date: "2026-05-28" });
+  try {
+    const cfg = defaultConfig();
+    cfg.dev.gitUsername = fix.author;
+    cfg.evolution.url = "http://example.com";
+    cfg.evolution.instance = "inst";
+    cfg.evolution.apiKey = "k";
+
+    const data = collect({ config: cfg, cwd: fix.cwd, date: "2026-05-28" });
+
+    assert.equal(data.period.isRange, false);
+    assert.equal(data.period.label, "28/05/2026");
+    assert.equal(data.period.since, "2026-05-28");
+    assert.equal(data.period.until, "2026-05-28");
+  } finally {
+    rmSync(fix.cwd, { recursive: true, force: true });
+  }
+});
